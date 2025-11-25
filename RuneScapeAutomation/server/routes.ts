@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import passport from "passport";
+import os from "os";
 import { storage } from "./storage";
 import { insertScriptSchema, insertNewsArticleSchema, insertSystemStatsSchema, insertUserSchema } from "@shared/schema";
 import OpenAI from "openai";
@@ -590,7 +591,6 @@ return`
   // System Stats API - Real device performance monitoring
   app.get("/api/system-stats", async (req: Request, res: Response) => {
     try {
-      const os = require('os');
       const cpus = os.cpus();
       const totalMem = os.totalmem();
       const freeMem = os.freemem();
@@ -631,7 +631,6 @@ return`
   // Historical stats endpoint for charts
   app.get("/api/system-stats/history", async (req: Request, res: Response) => {
     try {
-      const os = require('os');
       // Generate 20 data points for chart
       const history = Array.from({ length: 20 }, (_, i) => {
         const cpus = os.cpus();
