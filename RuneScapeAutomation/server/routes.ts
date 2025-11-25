@@ -73,6 +73,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(401).json({ error: info?.message || "Invalid credentials" });
       }
+      req.login(user, (err) => {
+        if (err) {
+          return res.status(500).json({ error: "Failed to establish session" });
+        }
+        const { passwordHash, ...userWithoutPassword } = user;
+        res.json({ user: userWithoutPassword, message: "Login successful" });
+      });
+    })(req, res, next);
+  });
+
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to logout" });
+      }
+      req.session.destroy((err) => {
+        if (err) {
+          return res.status(500).json({ error: "Failed to destroy session" });
+        }
+        res.json({ message: "Logged out successfully" });
+      });
+    });
+  });
+
+  app.get("/api/auth/me", (req: Request, res: Response) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const { passwordHash, ...userWithoutPassword } = req.user as any;
+    res.json({ user: userWithoutPassword });
+  });
+
+  // Scripts API Routes - NO AUTH REQUIRED
+  app.get("/api/scripts", async (req: Request, res: Response) => {
+    try {
+      const { category, search } = req.query;
+      if (search && typeof search === 'string') {
+        const results = await storage.searchScripts(search);
+        return res.json(results);
+      }
+      if (category && typeof category === 'string' && category !== 'all') {
+        const results = await storage.getScriptsByCategory(category);
+        return res.json(results);
+      }
+      const allScripts = await storage.getAllScripts();
+      res.json(allScripts);
+    } catch (error) {
+      console.error("Error fetching scripts:", error);
+      res.status(500).json({ error: "Failed to fetch scripts" });
+    }
+  });
+
+  app.get("/api/scripts/:id", async (req: Request, res: Response) => {
+    try {
+      const script = await storage.getScript(req.params.id);
+      if (!script) {
+        return res.status(404).json({ error: "Script not found" });
+      }
+      res.json(script);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch script" });
+    }
   });
 
   app.post("/api/scripts/:id/execute", async (req: Request, res: Response) => {
