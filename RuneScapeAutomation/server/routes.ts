@@ -866,3 +866,121 @@ return`
 
   return httpServer;
 }
+
+  // Game Launcher APIs
+  interface GameAccount {
+    id: string;
+    name: string;
+    client: 'browser' | 'launcher' | 'steam' | 'runelite';
+    username?: string;
+    notes?: string;
+  }
+
+  interface DetectedClient {
+    type: 'browser' | 'launcher' | 'steam' | 'runelite';
+    path?: string;
+    detected: boolean;
+  }
+
+  // Store game accounts and settings in memory (demo mode - would be DB in production)
+  const gameAccounts: GameAccount[] = [];
+  const gameSettings: any = { preferredClient: 'runelite' };
+
+  // Get all game accounts
+  app.get("/api/game/accounts", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      res.json(gameAccounts.length > 0 ? gameAccounts : []);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch accounts" });
+    }
+  });
+
+  // Add game account
+  app.post("/api/game/accounts", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { name, client, username, notes } = req.body;
+      if (!name || !client) {
+        return res.status(400).json({ error: "Name and client type required" });
+      }
+      const account: GameAccount = {
+        id: Date.now().toString(),
+        name,
+        client,
+        username,
+        notes
+      };
+      gameAccounts.push(account);
+      res.json({ success: true, account });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add account" });
+    }
+  });
+
+  // Delete game account
+  app.delete("/api/game/accounts/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const index = gameAccounts.findIndex(a => a.id === id);
+      if (index === -1) return res.status(404).json({ error: "Account not found" });
+      gameAccounts.splice(index, 1);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+
+  // Detect installed OSRS clients
+  app.get("/api/game/clients/detect", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const detected: DetectedClient[] = [
+        { type: 'browser', detected: true, path: 'https://oldschool.runescape.com' },
+        { type: 'runelite', detected: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' },
+        { type: 'launcher', detected: process.platform === 'win32' },
+        { type: 'steam', detected: process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' }
+      ];
+      res.json(detected);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to detect clients" });
+    }
+  });
+
+  // Set preferred game client
+  app.post("/api/game/settings/client", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { client } = req.body;
+      if (!['browser', 'launcher', 'steam', 'runelite'].includes(client)) {
+        return res.status(400).json({ error: "Invalid client type" });
+      }
+      gameSettings.preferredClient = client;
+      res.json({ success: true, preferredClient: client });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  // Launch game
+  app.post("/api/game/launch", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { accountId, client } = req.body;
+      const account = accountId ? gameAccounts.find(a => a.id === accountId) : null;
+      const clientType = client || gameSettings.preferredClient || 'browser';
+      
+      // In a real implementation, this would:
+      // 1. Detect game path based on client type
+      // 2. Launch appropriate executable/URL
+      // 3. Auto-login if credentials provided
+      
+      res.json({
+        success: true,
+        message: `Launching ${clientType}${account ? ` with account: ${account.name}` : ''}`,
+        launchDetails: {
+          client: clientType,
+          account: account?.name || 'None',
+          status: 'launched'
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to launch game" });
+    }
+  });
+

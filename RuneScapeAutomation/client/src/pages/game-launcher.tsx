@@ -1,29 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import {
   Play,
-  Pause,
   Square,
   Settings,
-  Download,
-  Upload,
   Gamepad2,
   Globe,
   Users,
   Trophy,
   Clock,
   Zap,
-  Shield,
-  Sword,
-  Map,
-  Star,
-  AlertCircle,
+  Plus,
+  Trash2,
   CheckCircle,
   RefreshCw,
+  Star,
+  Monitor,
+  Loader2,
 } from "lucide-react";
 import heroImage from "@assets/generated_images/OSRS_Grand_Exchange_hero_banner_a82c4135.png";
 
@@ -35,27 +37,129 @@ const gameWorlds = [
   { world: 373, type: "2200 Total", players: 432, location: "Germany", ping: 28, members: true },
 ];
 
-const quickLaunchProfiles = [
-  { name: "Main Account", combat: 126, total: 2277, icon: Sword, status: "ready" },
-  { name: "Iron Man", combat: 105, total: 1876, icon: Shield, status: "ready" },
-  { name: "Skiller", combat: 3, total: 1543, icon: Zap, status: "offline" },
-  { name: "PKer", combat: 88, total: 1245, icon: Trophy, status: "ready" },
-];
+const clientIcons: Record<string, any> = {
+  browser: Globe,
+  launcher: Monitor,
+  steam: Trophy,
+  runelite: Zap,
+};
 
 export default function GameLauncher() {
+  const { toast } = useToast();
   const [selectedWorld, setSelectedWorld] = useState(302);
   const [isLaunching, setIsLaunching] = useState(false);
   const [gameStatus, setGameStatus] = useState<"offline" | "launching" | "running">("offline");
+  const [selectedClient, setSelectedClient] = useState("runelite");
+  const [newAccountName, setNewAccountName] = useState("");
+  const [newAccountClient, setNewAccountClient] = useState("runelite");
 
-  const handleLaunch = () => {
+  // Fetch accounts
+  const { data: accounts = [], isLoading: accountsLoading, refetch: refetchAccounts } = useQuery({
+    queryKey: ['/api/game/accounts'],
+    queryFn: async () => {
+      try {
+        const res = await fetch("/api/game/accounts");
+        if (!res.ok) throw new Error("Failed to fetch accounts");
+        return res.json();
+      } catch (e) {
+        console.log("Could not fetch accounts (offline mode)");
+        return [];
+      }
+    },
+  });
+
+  // Detect clients
+  const { data: detectedClients = [], refetch: refetchClients } = useQuery({
+    queryKey: ['/api/game/clients/detect'],
+    queryFn: async () => {
+      try {
+        const res = await fetch("/api/game/clients/detect");
+        if (!res.ok) throw new Error("Failed to detect clients");
+        return res.json();
+      } catch (e) {
+        console.log("Could not detect clients");
+        return [];
+      }
+    },
+  });
+
+  // Add account mutation
+  const addAccountMutation = useMutation({
+    mutationFn: async (data: { name: string; client: string }) => {
+      const res = await fetch("/api/game/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to add account");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/game/accounts'] });
+      setNewAccountName("");
+      toast({
+        title: "Account added",
+        description: `New ${newAccountClient} account created successfully`,
+      });
+    },
+  });
+
+  // Delete account mutation
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const res = await fetch(`/api/game/accounts/${accountId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete account");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/game/accounts'] });
+      toast({ title: "Account deleted", description: "Account removed successfully" });
+    },
+  });
+
+  // Launch game mutation
+  const launchMutation = useMutation({
+    mutationFn: async (data: { accountId?: string; client: string }) => {
+      const res = await fetch("/api/game/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to launch game");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setGameStatus("running");
+      toast({
+        title: "Game launched",
+        description: data.message,
+      });
+      setTimeout(() => {
+        setIsLaunching(false);
+      }, 2000);
+    },
+    onError: () => {
+      setIsLaunching(false);
+      toast({
+        title: "Launch failed",
+        description: "Could not launch game. Check your settings.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleLaunch = (accountId?: string) => {
     setIsLaunching(true);
     setGameStatus("launching");
-    
-    // Simulate launch process
-    setTimeout(() => {
-      setGameStatus("running");
-      setIsLaunching(false);
-    }, 3000);
+    launchMutation.mutate({ accountId, client: selectedClient });
+  };
+
+  const handleAddAccount = () => {
+    if (!newAccountName.trim()) {
+      toast({ title: "Error", description: "Please enter an account name", variant: "destructive" });
+      return;
+    }
+    addAccountMutation.mutate({ name: newAccountName, client: newAccountClient });
   };
 
   return (
@@ -98,15 +202,15 @@ export default function GameLauncher() {
               OLD SCHOOL RUNESCAPE
             </h1>
             <p className="text-xl text-white/90 max-w-2xl">
-              Adventure awaits in the world of Gielinor. Choose your path and become a legend.
+              Adventure awaits in the world of Gielinor. Choose your account and launch your game.
             </p>
             
             <div className="flex gap-4 justify-center">
               <Button 
                 size="lg"
-                className="px-12 py-6 text-lg bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold animate-pulse-glow"
-                onClick={handleLaunch}
-                disabled={isLaunching || gameStatus === "running"}
+                className="px-12 py-6 text-lg bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-bold"
+                onClick={() => handleLaunch()}
+                disabled={isLaunching || gameStatus === "running" || accountsLoading}
                 data-testid="button-launch-osrs"
               >
                 {isLaunching ? (
@@ -144,226 +248,253 @@ export default function GameLauncher() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Quick Launch Profiles */}
+        {/* Game Accounts */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
-              Quick Launch Profiles
+              Game Accounts
             </CardTitle>
             <CardDescription>
-              Select an account profile to launch with pre-configured settings
+              Add your OSRS accounts for quick launch with auto-login
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {quickLaunchProfiles.map((profile, i) => {
-                const Icon = profile.icon;
-                return (
-                  <Card 
-                    key={i}
-                    className="border-border/50 bg-muted/30 hover-elevate cursor-pointer"
-                    data-testid={`profile-${profile.name.toLowerCase().replace(' ', '-')}`}
+          <CardContent className="space-y-6">
+            {/* Add New Account */}
+            <div className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-3">
+              <h4 className="font-semibold text-sm">Add New Account</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label htmlFor="account-name" className="text-xs mb-1 block">Account Name</Label>
+                  <Input
+                    id="account-name"
+                    placeholder="My Main, Alt 1, etc"
+                    value={newAccountName}
+                    onChange={(e) => setNewAccountName(e.target.value)}
+                    className="h-8"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="client-type" className="text-xs mb-1 block">Client Type</Label>
+                  <Select value={newAccountClient} onValueChange={setNewAccountClient}>
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="browser">Browser</SelectItem>
+                      <SelectItem value="runelite">RuneLite</SelectItem>
+                      <SelectItem value="launcher">Official Launcher</SelectItem>
+                      <SelectItem value="steam">Steam</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button 
+                    size="sm" 
+                    className="w-full"
+                    onClick={handleAddAccount}
+                    disabled={addAccountMutation.isPending}
                   >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className={`p-2 rounded-lg bg-gradient-to-br from-primary/20 to-secondary/20`}>
-                          <Icon className="w-5 h-5 text-primary" />
-                        </div>
-                        <Badge 
-                          variant={profile.status === "ready" ? "outline" : "secondary"}
-                          className={profile.status === "ready" ? "border-green-500/50 text-green-500" : ""}
-                        >
-                          {profile.status === "ready" && (
-                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1" />
-                          )}
-                          {profile.status}
-                        </Badge>
-                      </div>
-                      <h4 className="font-semibold mb-2">{profile.name}</h4>
-                      <div className="space-y-1 text-xs text-muted-foreground">
-                        <div className="flex justify-between">
-                          <span>Combat:</span>
-                          <span className="font-mono">{profile.combat}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Total:</span>
-                          <span className="font-mono">{profile.total}</span>
-                        </div>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        className="w-full mt-3" 
-                        variant="outline"
-                        disabled={profile.status === "offline"}
-                      >
-                        Launch
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Account
+                  </Button>
+                </div>
+              </div>
             </div>
+
+            {/* Existing Accounts */}
+            {accountsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              </div>
+            ) : accounts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No accounts added yet. Create one above to get started!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {accounts.map((account: any) => {
+                  const ClientIcon = clientIcons[account.client] || Gamepad2;
+                  return (
+                    <Card 
+                      key={account.id}
+                      className="border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors"
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="p-2 rounded-lg bg-primary/20">
+                              <ClientIcon className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                              <h4 className="font-semibold text-sm">{account.name}</h4>
+                              <p className="text-xs text-muted-foreground capitalize">{account.client}</p>
+                            </div>
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => deleteAccountMutation.mutate(account.id)}
+                            disabled={deleteAccountMutation.isPending}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:opacity-90"
+                          onClick={() => handleLaunch(account.id)}
+                          disabled={isLaunching}
+                        >
+                          <Play className="w-3 h-3 mr-1" />
+                          Launch with {account.name}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* World Selector and Settings */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* World Selector */}
-          <Card className="lg:col-span-2 border-border/50 bg-card/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Globe className="w-5 h-5 text-primary" />
-                World Selector
-              </CardTitle>
-              <CardDescription>
-                Choose your preferred game world based on location and activity
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="recommended">
-                <TabsList className="bg-muted/30">
-                  <TabsTrigger value="recommended">Recommended</TabsTrigger>
-                  <TabsTrigger value="all">All Worlds</TabsTrigger>
-                  <TabsTrigger value="favorite">Favorites</TabsTrigger>
-                </TabsList>
-                <TabsContent value="recommended" className="space-y-2 mt-4">
-                  {gameWorlds.map((world) => (
-                    <div
-                      key={world.world}
-                      className={`
-                        flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all
-                        ${selectedWorld === world.world 
-                          ? 'bg-primary/20 border border-primary/30' 
-                          : 'bg-muted/30 hover:bg-muted/50'}
-                      `}
-                      onClick={() => setSelectedWorld(world.world)}
-                      data-testid={`world-${world.world}`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="text-center">
-                          <p className="font-gaming text-lg font-bold">W{world.world}</p>
-                          <Badge variant="outline" className="text-xs">
-                            {world.type}
-                          </Badge>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Map className="w-3 h-3 text-muted-foreground" />
-                            <span className="text-sm">{world.location}</span>
-                          </div>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {world.players}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Zap className="w-3 h-3" />
-                              {world.ping}ms
-                            </span>
-                            {world.members && (
-                              <Badge variant="secondary" className="text-xs h-4">
-                                <Star className="w-2 h-2 mr-1" />
-                                Members
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      {selectedWorld === world.world && (
-                        <CheckCircle className="w-5 h-5 text-primary" />
-                      )}
-                    </div>
-                  ))}
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-
-          {/* Launch Settings */}
+        {/* Client Settings & Detection */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Preferred Client */}
           <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-secondary" />
-                Launch Settings
+                <Monitor className="w-5 h-5 text-secondary" />
+                Preferred Client
               </CardTitle>
+              <CardDescription>
+                Choose your default OSRS client for launching
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Graphics Mode</span>
-                  <Badge variant="outline">GPU</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Draw Distance</span>
-                  <Badge variant="outline">50</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">FPS Cap</span>
-                  <Badge variant="outline">Unlimited</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Plugins</span>
-                  <Badge variant="outline">117 HD</Badge>
-                </div>
-              </div>
-              
-              <div className="pt-4 border-t border-border/50">
-                <h4 className="text-sm font-semibold mb-3">Client Options</h4>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" defaultChecked className="rounded" />
-                    Auto-login
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" defaultChecked className="rounded" />
-                    Remember world
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" className="rounded" />
-                    Low detail mode
-                  </label>
-                </div>
-              </div>
-
-              <Button className="w-full" variant="outline">
-                <Settings className="w-4 h-4 mr-2" />
-                Advanced Settings
+              <Select value={selectedClient} onValueChange={setSelectedClient}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="browser">
+                    <span className="flex items-center gap-2">
+                      <Globe className="w-4 h-4" />
+                      Web Browser
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="runelite">
+                    <span className="flex items-center gap-2">
+                      <Zap className="w-4 h-4" />
+                      RuneLite
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="launcher">
+                    <span className="flex items-center gap-2">
+                      <Monitor className="w-4 h-4" />
+                      Official Launcher
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="steam">
+                    <span className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4" />
+                      Steam
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" className="w-full" onClick={() => refetchClients()}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Detect Installed Clients
               </Button>
+            </CardContent>
+          </Card>
+
+          {/* Detected Clients */}
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-accent" />
+                Detected Clients
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {detectedClients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Detecting clients...</p>
+                ) : (
+                  detectedClients.map((client: any) => (
+                    <div key={client.type} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const Icon = clientIcons[client.type];
+                          return <Icon className="w-4 h-4 text-primary" />;
+                        })()}
+                        <span className="text-sm capitalize">{client.type}</span>
+                      </div>
+                      {client.detected ? (
+                        <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Found
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          Not Found
+                        </Badge>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Game Statistics */}
+        {/* World Selector */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-accent" />
-              Session Statistics
+              <Globe className="w-5 h-5 text-primary" />
+              World Selector
             </CardTitle>
+            <CardDescription>
+              Choose your preferred game world based on location and activity
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 rounded-lg bg-muted/30">
-                <Clock className="w-8 h-8 mx-auto mb-2 text-primary" />
-                <p className="text-2xl font-bold font-mono">0:00</p>
-                <p className="text-xs text-muted-foreground">Session Time</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted/30">
-                <Zap className="w-8 h-8 mx-auto mb-2 text-secondary" />
-                <p className="text-2xl font-bold font-mono">0</p>
-                <p className="text-xs text-muted-foreground">XP Gained</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted/30">
-                <Trophy className="w-8 h-8 mx-auto mb-2 text-accent" />
-                <p className="text-2xl font-bold font-mono">0</p>
-                <p className="text-xs text-muted-foreground">Quests Done</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-muted/30">
-                <Star className="w-8 h-8 mx-auto mb-2 text-yellow-500" />
-                <p className="text-2xl font-bold font-mono">0</p>
-                <p className="text-xs text-muted-foreground">Levels Gained</p>
-              </div>
+            <div className="space-y-2">
+              {gameWorlds.map((world) => (
+                <div
+                  key={world.world}
+                  className={`
+                    flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all
+                    ${selectedWorld === world.world 
+                      ? 'bg-primary/20 border border-primary/30' 
+                      : 'bg-muted/30 hover:bg-muted/50'}
+                  `}
+                  onClick={() => setSelectedWorld(world.world)}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <p className="font-gaming text-lg font-bold">W{world.world}</p>
+                      <Badge variant="outline" className="text-xs">
+                        {world.type}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <span>{world.location}</span>
+                      <div className="text-xs text-muted-foreground">
+                        {world.players} players • {world.ping}ms ping
+                      </div>
+                    </div>
+                  </div>
+                  {selectedWorld === world.world && (
+                    <CheckCircle className="w-5 h-5 text-primary" />
+                  )}
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
